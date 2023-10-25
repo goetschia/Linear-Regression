@@ -1,0 +1,465 @@
+---
+title: "Applied regression modeling in R"
+
+authors:   
+  - name: "Guy-Alain Schnidrig (VPHI)"
+  - name: "Filipe Miguel Maximiano Alves de Sousa (VPHI)"
+  - name: "Eleftheria Michalopoulou (ISPM)"
+  - name: "Beatriz Vidondo (VPHI)"
+  - name: "Ben Spycher (ISPM)"
+
+toc: true
+toc-depth: 10
+toc-location: left
+number-sections: false
+editor: source
+format: 
+  html:
+    self-contained: true
+    code-fold: true
+    theme: flatly
+---
+
+### Information
+
+Exercises (solution R-code provided) for [Linear and Logistic Regression Modelling in R](https://zuw.me/kurse/dt.php?kid=4476) course of the [Public Health Sciences Course Program](https://www.medizin.unibe.ch/studies/study_programs/phs_course_program) at the [University of Bern](https://www.unibe.ch/).
+
+To follow along with the course, we recommend that you open a new R-Script (or Quarto/Markdown). Create a new folder on your local machine and copy the data sets from ILIAS to it. 
+
+Before starting the exercises, you should run the provided setup chunk in at least once.
+
+
+```{r setup, include=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
+# Set language
+Sys.setenv(LANG = "en")
+
+# Clear memory
+rm(list=ls())
+gc()
+
+# Load libraries
+library_names <- c("tidyverse", "knitr", "broom", "gridExtra", "ggpubr", "ggpmisc", 
+                   "performance", "qqplotr", "patchwork", "see", "MASS", "car")
+
+install_or_load_pack <- function(pack){
+  create.pkg <- pack[!(pack %in% installed.packages()[, "Package"])]
+  if (length(create.pkg)) install.packages(create.pkg, dependencies = TRUE, repos="https://cloud.r-project.org")
+  sapply(pack, require, character.only = TRUE)
+}
+
+install_or_load_pack(library_names)
+rm(library_names)
+
+```
+
+Side note: The pipe operator is written as `%>%` or `|>`, and it takes the result of the expression on its left and passes it as the first argument to the function on its right. In other words, it allows you to apply a series of functions to a data object step by step.
+
+```{r}
+#| code-fold: false
+10 %>% 
+  + 5 %>% 
+  - 2
+```
+
+# Simple linear regression
+
+## Load data
+
+Load `perulung` data using the function `read_csv()`.
+
+```{r}
+#| code-fold: false
+
+# Load the csv file
+perulung <- read_csv("../data/perulung_ems.csv", show_col_types = FALSE)
+```
+
+#### Exercise 1
+
+Use `head()` to display the first 10 rows of the data.
+
+```{r}
+perulung %>% 
+  head(10) %>% 
+  kable()
+```
+
+## Data wrangling
+
+#### Exercise 2
+
+Apply the transformations from slide 29 in `Simple Regression.html`.
+
+```{r}
+perulung <- perulung  %>%  
+  mutate(id = as.integer(id),
+         sex = factor(sex, levels = c(0,1), labels=c("f","m")),
+         respsymptoms = factor(respsymptoms, levels=c(0,1), labels=c("no","yes")),
+         asthma_hist = factor(asthma_hist, levels=c("never", "previous asthma", "current asthma"), 
+                              labels=c("never", "previous asthma", "current asthma")))
+```
+
+## Data visualizations and model assumptions
+
+It is always recommended to visualize your data before you run any kind of analysis.
+
+#### Exercise 3
+
+Plot the `fev1` and `height` as histograms and inspect their distributions.\
+
+Use `ggplot()` and `geom_histogram()`.
+
+```{r}
+plot_height <- perulung %>% 
+  ggplot(aes(x = fev1)) +
+  geom_histogram(bins = 30,
+                 fill = "steelblue", 
+                 color = "grey") +
+  theme_bw()
+
+
+plot_fev1 <- perulung %>% 
+  ggplot(aes(x = height)) +
+  geom_histogram(bins = 30,
+                 fill = "steelblue", 
+                 color = "grey") +
+  theme_bw()
+
+
+grid.arrange(plot_height, plot_fev1, ncol = 2) 
+```
+
+#### Exercise 3
+
+Plot lung function `fev1` and `height` in a scatter plot.\
+Describe the plot in your own words.\
+Use `ggplot()` and `geom_point`.
+
+```{r}
+perulung %>% 
+  ggplot(aes(x = height, y = fev1)) +
+  geom_point(color = "steelblue") +
+  theme_bw()
+```
+
+#### Exercise 4
+
+As we can see the points seem to be correlated.\
+To confirm that, calculate the pearson correlation of `fev1` and `height` with `cor()`.
+
+```{r}
+cor(perulung$fev1, perulung$height, method = c("pearson")) 
+```
+
+## Least squares estimation (LSE)
+
+#### Exercise 5
+
+Calculate the regression coefficients $\hat{b1}$ and $\hat{b0}$ according to slide 13 and given that:
+
+```{r}
+#| code-fold: false
+x = perulung$height
+y = perulung$fev1
+
+```
+
+Use `cor()`, `sd()` and `mean()`.
+
+```{r}
+b1 = (cor(y, x) * sd(y)) / sd(x)
+b0 = mean(y) - b1 * mean(x)
+
+
+cat("b1:", b1,"b0:", b0)
+```
+
+#### Exercise 6
+
+Use the function `lm()` to preform a simple linear regression. This will apply the method of least squares to fit regression line.\
+Use `summary()` to inspect your results.
+
+1.   Are your calculated $\hat{b1}$ and $\hat{b0}$ the same as the ones from `lm()`?
+
+
+
+##### 
+
+```{r}
+model_1 <- lm(fev1 ~ height, data = perulung)
+summary(model_1)
+```
+
+#### Exercise 7
+
+Given your fitted regression, what is the the predicted `fev1` of a child that is `113.8 cm` tall?\
+Try to calculate it with $\hat{b0}$ + $\hat{b1}$ or use `predict()`.\
+What happens if you predict with a value that was not originally in the range of the data frame?
+
+```{r}
+# Y = b0 + b1*X
+Y = b0 + b1 * 113.8
+
+# Predict
+Y_predict = predict(model_1, newdata = data.frame(height = 113.8))
+
+cat("Y:",Y ,"Y_predict:", Y_predict)
+```
+
+#### Exercise 8
+
+One easier way to deal with the output of `summary()` on our model is to store it with `tidy()`.\
+Use `tidy()` to tidy up your model coefficients and store them in a tibble.\
+Try to include the confidence interval.
+
+```{r}
+summary_model_1 <- model_1 %>% 
+  tidy(conf.int = TRUE) 
+  
+summary_model_1 %>% 
+  kable()
+
+t <- summary(model_1)
+```
+
+#### Exercise 9
+
+Use `glance()` to store more components of the model summary in a tibble.\
+How much variance of `fev1` is explained by `height`?
+
+```{r}
+components_model_1 <- model_1 %>% 
+  glance() 
+
+components_model_1 %>% 
+  kable()
+```
+
+#### Exercise 10
+
+Implement a *t*-test by hand using `pt()` as it is described on slide 41.\
+Use the `estimate` and the `std.error` saved in your model summary.\
+Compare your results to the `p.value` of your fitted regression.
+
+```{r}
+t_test <- summary_model_1$estimate / summary_model_1$std.error
+
+p <- 2*pt(-abs(t_test), components_model_1$df.residual)
+p 
+
+summary_model_1$p.value
+```
+
+## Regression line
+
+#### Exercise 11
+
+Standardize `fev1` and `height` (`(i - mean(i)) / sd(i)`) and re-run `lm()` with them. This way you can verify that the fitted slope is the same as the correlation in Exercise 4.\
+
+```{r}
+x_norm <- (x - mean(x)) / sd(x)
+y_norm <- (y - mean(y)) / sd(y)
+
+cor(x_norm, y_norm, method = c("pearson"))
+lm(y_norm ~ x_norm)
+
+cor(perulung$fev1, perulung$height, method = c("pearson")) 
+```
+
+#### Exercise 12
+
+Use `ggplot()` to recreate the scatter plot from Exercise 3 and then add a regression line using `stat_poly_line`.\
+Try to add the regression equation and the adjusted R^2^ with \`stat_poly_eq().\
+Evaluate how "good" your regression line is.
+
+```{r}
+perulung %>% 
+  ggplot(aes(x = height, y = fev1)) +
+  geom_point(color = "steelblue") +
+  stat_poly_line(color = "orange", se = FALSE) +
+  stat_poly_eq(use_label(c("eq"))) +
+  stat_poly_eq(use_label(c("adj.R2")), label.y = 0.9) +
+  theme_bw()
+```
+
+# Multiple linear regression
+
+## Including multiple independent variables
+
+We will now examine a data set that includes the birth weight of children.\
+The data was collected in 1986 at Baystate Medical Center in Springfield, Massachusetts. More information on the variables you find [here](https://stat.ethz.ch/R-manual/R-devel/library/MASS/html/birthwt.html "Variable Info").
+
+```{r}
+#| code-fold: false
+
+# Rename the columns to have more descriptive names
+birthwt <- MASS::birthwt %>%
+  rename(birthweight_below_2500 = low,
+         mother_age = age,
+         mother_weight = lwt,
+         ethnicity = race,
+         mother_smokes = smoke,
+         previous_prem_labor = ptl,
+         hypertension = ht,
+         uterine_irr = ui,
+         physician_visits = ftv,
+         birthweight = bwt)
+
+# Recode the factors
+birthwt <- birthwt %>% 
+  mutate(birthweight_below_2500 = factor(birthweight_below_2500, levels = c(0,1), labels=c("no","yes")),
+         ethnicity = factor(ethnicity, levels = c(1,2,3), labels=c("White","Black", "Other")),
+         mother_smokes = factor(mother_smokes, levels = c(0,1), labels=c("no","yes")),
+         hypertension = factor(hypertension, levels = c(0,1), labels=c("no","yes")),
+         uterine_irr = factor(uterine_irr, levels = c(0,1), labels=c("no","yes")))
+                    
+birthwt %>% 
+  head(5) %>% 
+  kable()
+```
+
+#### Exercise 13
+
+Create an univariate linear regression model with `birthweight` as the outcome and `mother_smokes` as the explanatory variable.
+
+1. What is the equation of the regression line, and what does the coefficient represent?
+
+2. How well does the model fit the data, and what is the value of the R-squared statistic?
+
+3. Describe the effect of `mother_smokes` on the `birthweight`.
+
+```{r}
+model_uni <- lm(birthweight ~ mother_smokes, data = birthwt)
+summary(model_uni)
+
+```
+Add `mother_weight` to your model.
+
+1. Describe the estimate of the weight coefficient. 
+
+2. Is R-squared different, and if so why?
+
+3. Reformulate your description of the effect of `mother_smokes` on the `birthweight`.
+
+4. Describe the effect of `mother_weight` on the `birthweight`. 
+
+```{r}
+model_two <- lm(birthweight ~ mother_smokes + mother_weight, data = birthwt)
+summary(model_two)
+
+```
+
+Add the variables `mother_age` and `hypertension` to your model.
+
+1. Where is the `mother_smokesno` estimate?
+
+2. How well does the model fit the data, and what is the value of the R-squared statistic?
+
+3. Reformulate your description of the effect of `mother_smokes` on the `birthweight`.
+
+4. Does a history of hypertension during pregnancy influence the birth weight of children? 
+
+```{r}
+model_full <- lm(birthweight ~ mother_smokes + mother_age + mother_weight + hypertension, data = birthwt)
+summary(model_full)
+
+```
+
+## F-test
+
+#### Exercise 13
+
+Execute a F-test between your full model and `model_reduced` and interpret the results. 
+
+```{r}
+#| code-fold: false
+model_reduced <- lm(formula = birthweight ~ mother_smokes + mother_weight, data = birthwt)
+```
+
+```{r}
+anova(model_full, model_reduced)
+# The `anova` function compares the two models and calculates the F-statistic and p-value to determine whether the full model (model_full) explains significantly more variance than the reduced model (model_reduced)
+
+# We conclude that the more complex model is significantly (p = 0.02162) better than the simpler model, and thus we favor the more complex model.
+```
+
+## Residual analysis
+
+
+Are the assumptions of linear regression met, such as linearity, independence, normality, and equal variance?
+
+For a quick look at the the models residuals we can use `plot()`.
+
+```{r}
+#| code-fold: false
+par(mfrow = c(2, 2))
+plot(model_full)
+```
+
+However we can use the package `performance` to analyse our model in depth. We can use `check_model` to see if our residuals have zero mean across the whole range fitted values. Explain your result. 
+
+```{r}
+#| code-fold: false
+check_model <- check_model(model_full, panel = FALSE, check = "linearity")
+plot(check_model) 
+```
+
+#### Exercise 14
+
+Use `check_normality` to see if our residuals are normally distributed. Note that this formal test almost always yields strong evidence for the distribution of residuals and visual inspection (e.g. Q-Q plots) are preferable.
+
+```{r}
+normality_result <- check_normality(model_full)
+normality_result
+```
+
+Try to plot the QQ-plot of your normality_result with `plot()`. Do the dots follow the line? What does this mean?
+
+```{r}
+plot(normality_result, type = "qq")
+
+```
+
+## Heteroscedasticity
+
+#### Exercise 15
+
+Use `check_heteroscedasticity` to test significance for linear regression models. We assume that the model errors (or residuals) have constant variance. If this assumption is violated the p-values from the model are no longer reliable.
+
+```{r}
+heteroscedasticity_result <- check_heteroscedasticity(model_full)
+heteroscedasticity_result
+```
+
+Plot and interpret the `heteroscedasticity_result` with `plot()`.
+
+```{r}
+plot(heteroscedasticity_result)
+```
+
+## Influence
+
+#### Exercise 16
+
+Checks for and locates influential observations (i.e., "outliers") via several distance and/or clustering methods (default is Cook's distance.
+
+```{r}
+outliers_result <- check_outliers(model_full, threshold = list('cook' = 1))
+outliers_result
+```
+
+Plot and interpret the `outliers_result` with `plot()`.
+
+```{r}
+plot(outliers_result)
+```
+
+## Multicollinearity (variance inflation factor)
+
+#### Exercise 17
+
+Use `vif()` to see if there are any problematic variables. Comment on the result. 
+
+```{r}
+vif(model_full)
+```
